@@ -9,10 +9,10 @@ from tensorflow.keras.models import model_from_json
 
 app = Flask(__name__)
 
-# ✅ CORS: Only allow requests from your GitHub Pages
+# ✅ CORS: Allow GitHub Pages only
 CORS(app, resources={r"/solve": {"origins": "https://satyaprakashmohanty13.github.io"}})
 
-# ✅ Extra: Block other referers too
+# ✅ Block other referers
 @app.before_request
 def block_unauthorized_referer():
     allowed_referer = "https://satyaprakashmohanty13.github.io"
@@ -20,7 +20,7 @@ def block_unauthorized_referer():
     if referer and not referer.startswith(allowed_referer):
         return jsonify({"error": "Unauthorized referer"}), 403
 
-# Load model
+# Load the OCR model
 with open('model/model.json') as f:
     model = model_from_json(f.read())
 model.load_weights('model/model.h5')
@@ -75,14 +75,7 @@ def extract_grid(img):
 def split_cells(grid_img):
     side = grid_img.shape[0]
     cell_size = side // 9
-    cells = []
-    for i in range(9):
-        row = []
-        for j in range(9):
-            cell = grid_img[i*cell_size:(i+1)*cell_size, j*cell_size:(j+1)*cell_size]
-            row.append(cell)
-        cells.append(row)
-    return cells
+    return [[grid_img[i*cell_size:(i+1)*cell_size, j*cell_size:(j+1)*cell_size] for j in range(9)] for i in range(9)]
 
 def read_puzzle(warp):
     cells = split_cells(warp)
@@ -133,8 +126,7 @@ def overlay_solution(orig, warp, M_inv, diff):
                 y = (i + 1) * cell_size - cell_size // 6
                 cv2.putText(warp, str(diff[i, j]), (x, y),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-    return cv2.warpPerspective(warp, M_inv, (orig.shape[1], orig.shape[0]),
-                               flags=cv2.WARP_INVERSE_MAP)
+    return cv2.warpPerspective(warp, M_inv, (orig.shape[1], orig.shape[0]), flags=cv2.WARP_INVERSE_MAP)
 
 @app.route('/solve', methods=['POST'])
 def solve_endpoint():
@@ -142,13 +134,14 @@ def solve_endpoint():
     if not file:
         return jsonify(error='No file uploaded'), 400
 
-    img = Image.open(file.stream).convert('RGB')
-    open_cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-
     try:
+        img = Image.open(file.stream).convert('RGB')
+        open_cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
         warp, M, side = extract_grid(open_cv_img)
         puzzle = read_puzzle(warp).copy()
         solved = puzzle.copy()
+
         if not solve(solved):
             return jsonify(error='Unsolvable puzzle'), 400
 
@@ -157,8 +150,7 @@ def solve_endpoint():
         out = overlay_solution(open_cv_img, warp, M_inv, diff)
 
         _, buf = cv2.imencode('.jpg', out)
-        return send_file(io.BytesIO(buf.tobytes()),
-                         mimetype='image/jpeg')
+        return send_file(io.BytesIO(buf.tobytes()), mimetype='image/jpeg')
     except Exception as e:
         return jsonify(error=str(e)), 500
 
